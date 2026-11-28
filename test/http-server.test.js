@@ -13,6 +13,7 @@ describe("HTTP server pages", () => {
   let child;
   let baseUrl;
   let cookie;
+  let output = "";
 
   before(async () => {
     const dir = mkdtempSync(path.join(tmpdir(), "anylist-mcp-http-"));
@@ -37,7 +38,10 @@ describe("HTTP server pages", () => {
       stdio: ["ignore", "pipe", "inherit"],
     });
     await new Promise((resolve, reject) => {
-      child.stdout.on("data", (data) => { if (data.toString().includes("listening")) resolve(); });
+      child.stdout.on("data", (data) => {
+        output += data;
+        if (data.toString().includes("listening")) resolve();
+      });
       child.on("exit", (code) => reject(new Error(`server exited with ${code}`)));
     });
     baseUrl = `http://127.0.0.1:${port}`;
@@ -51,6 +55,14 @@ describe("HTTP server pages", () => {
   });
 
   after(() => child.kill());
+
+  it("logs the bytes each request received and sent", async () => {
+    const body = JSON.stringify({ token: "x" });
+    const res = await fetch(`${baseUrl}/oauth/revoke`, { method: "POST", headers: { "content-type": "application/json" }, body });
+    const sent = (await res.arrayBuffer()).byteLength;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.match(output, new RegExp(`POST /oauth/revoke → ${res.status} in:${body.length}B out:${sent}B `));
+  });
 
   it("keeps the session cookie off cross-site POSTs", () => {
     assert.match(cookie, /SameSite=Lax/i);

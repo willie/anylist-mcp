@@ -80,11 +80,23 @@ app.use((_req, res, next) => {
 
 app.use((req, res, next) => {
   const start = Date.now();
-  res.on("finish", () => {
+  // Body bytes sent, streamed responses (SSE) included.
+  let sent = 0;
+  const { write, end } = res;
+  res.write = function (chunk, ...rest) {
+    sent += Buffer.byteLength(chunk);
+    return write.call(this, chunk, ...rest);
+  };
+  res.end = function (chunk, ...rest) {
+    if (chunk && typeof chunk !== "function") sent += Buffer.byteLength(chunk);
+    return end.call(this, chunk, ...rest);
+  };
+  // "close", not "finish": a stream the client drops never finishes.
+  res.on("close", () => {
     const body = req.method === "POST" && (req.path === "/sse" || req.path === "/mcp") && req.body
       ? " body:" + JSON.stringify(req.body).slice(0, 200)
       : "";
-    console.log(`${req.method} ${req.path} → ${res.statusCode} (${Date.now() - start}ms) session:${req.session?.id?.slice(0, 8) ?? "none"} user:${req.userId ?? req.session?.userId ?? "-"}${body}`);
+    console.log(`${req.method} ${req.path} → ${res.statusCode} in:${req.headers["content-length"] ?? 0}B out:${sent}B (${Date.now() - start}ms) session:${req.session?.id?.slice(0, 8) ?? "none"} user:${req.userId ?? req.session?.userId ?? "-"}${body}`);
   });
   next();
 });
